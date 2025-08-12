@@ -1390,8 +1390,8 @@ class AttributeMethodsTest < ActiveRecord::TestCase
     assert_equal([nil, "foo"], second_model_object.subject_change)
   end
 
-  test "#alias_attribute with an overridden original method does not use the overridden original method" do
-    class_with_deprecated_alias_attribute_behavior = Class.new(ActiveRecord::Base) do
+  test "#alias_attribute raises ArgumentError when trying to alias an attribute with custom methods" do
+    class_with_custom_method = Class.new(ActiveRecord::Base) do
       self.table_name = "topics"
       alias_attribute :subject, :title
 
@@ -1400,58 +1400,71 @@ class AttributeMethodsTest < ActiveRecord::TestCase
       end
     end
 
-    obj = class_with_deprecated_alias_attribute_behavior.new
-    obj.title = "hey"
-    assert_equal("hey", obj.subject)
-    assert_nil(obj.subject_was)
+    error = assert_raises(ArgumentError) do
+      class_with_custom_method.new
+    end
+    assert_equal custom_method_error_message(class_with_custom_method.name, "title", "subject"), error.message
   end
 
-  test "#alias_attribute with an overridden original method from a module does not use the overridden original method" do
+  test "#alias_attribute raises ArgumentError when trying to alias an attribute with custom methods from included module" do
     title_was_override = Module.new do
       def title_was
         "overridden_title_was"
       end
     end
 
-    class_with_deprecated_alias_attribute_behavior_from_module = Class.new(ActiveRecord::Base) do
+    class_with_module_method = Class.new(ActiveRecord::Base) do
       self.table_name = "topics"
       include title_was_override
       alias_attribute :subject, :title
     end
 
-    obj = class_with_deprecated_alias_attribute_behavior_from_module.new
-    obj.title = "hey"
-    assert_equal("hey", obj.subject)
-    assert_nil(obj.subject_was)
+    error = assert_raises(ArgumentError) do
+      class_with_module_method.new
+    end
+    assert_equal custom_method_error_message(class_with_module_method.name, "title", "subject"), error.message
   end
 
-  ClassWithDeprecatedAliasAttributeBehaviorResolved = Class.new(ActiveRecord::Base) do
-    self.table_name = "topics"
-    alias_attribute :subject, :title
+  test "#alias_attribute raises ArgumentError when trying to alias an attribute with custom methods on both original and alias" do
+    class_with_both_methods = Class.new(ActiveRecord::Base) do
+      self.table_name = "topics"
+      alias_attribute :subject, :title
 
-    def title_was
-      "overridden_title_was"
+      def title_was
+        "overridden_title_was"
+      end
+
+      def subject_was
+        "overridden_subject_was"
+      end
     end
 
-    def subject_was
-      "overridden_subject_was"
+    error = assert_raises(ArgumentError) do
+      class_with_both_methods.new
     end
+    assert_equal custom_method_error_message(class_with_both_methods.name, "title", "subject"), error.message
   end
 
-  test "#alias_attribute with an overridden original method along with an overridden alias method uses the overridden alias method" do
-    obj = ClassWithDeprecatedAliasAttributeBehaviorResolved.new
-    obj.title = "hey"
-    assert_equal("hey", obj.subject)
-    assert_equal("overridden_subject_was", obj.subject_was)
-  end
+  test "#alias_attribute raises ArgumentError when trying to alias an attribute with custom methods in child class" do
+    class_with_both_methods = Class.new(ActiveRecord::Base) do
+      self.table_name = "topics"
+      alias_attribute :subject, :title
 
-  test "#alias_attribute with an overridden original method along with an overridden alias method in a parent class uses the overridden alias method" do
-    child_with_deprecated_behavior_resolved = Class.new(ClassWithDeprecatedAliasAttributeBehaviorResolved)
+      def title_was
+        "overridden_title_was"
+      end
 
-    obj = child_with_deprecated_behavior_resolved.new
-    obj.title = "hey"
-    assert_equal("hey", obj.subject)
-    assert_equal("overridden_subject_was", obj.subject_was)
+      def subject_was
+        "overridden_subject_was"
+      end
+    end
+
+    child_class = Class.new(class_with_both_methods)
+
+    error = assert_raises(ArgumentError) do
+      child_class.new
+    end
+    assert_match(/model aliases `title`, but `title` has a custom method defined, which is not allowed for `alias_attribute`/, error.message)
   end
 
   ParentWithAlias = Class.new(ActiveRecord::Base) do
@@ -1539,6 +1552,8 @@ class AttributeMethodsTest < ActiveRecord::TestCase
     assert_equal message, error.message
   end
 
+
+
   test "#alias_attribute with an association method raises an error" do
     class_with_association_target = Class.new(ActiveRecord::Base) do
       def self.name
@@ -1604,7 +1619,13 @@ class AttributeMethodsTest < ActiveRecord::TestCase
     assert_equal message, error.message
   end
 
+
+
   private
+    def custom_method_error_message(class_name, old_name, new_name)
+      "#{class_name} model aliases `#{old_name}`, but `#{old_name}` has a custom method defined, which is not allowed for `alias_attribute`. Consider using `alias_method :#{new_name}, :#{old_name}` instead."
+    end
+
     def new_topic_like_ar_class(&block)
       klass = Class.new(ActiveRecord::Base) do
         self.table_name = "topics"

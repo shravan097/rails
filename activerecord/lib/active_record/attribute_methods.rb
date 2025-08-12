@@ -86,10 +86,13 @@ module ActiveRecord
 
       def alias_attribute_method_definition(code_generator, pattern, new_name, old_name) # :nodoc:
         old_name = old_name.to_s
+        target_name = pattern.method_name(old_name).to_s
 
         if !abstract_class? && !has_attribute?(old_name)
           raise ArgumentError, "#{self.name} model aliases `#{old_name}`, but `#{old_name}` is not an attribute. " \
             "Use `alias_method :#{new_name}, :#{old_name}` or define the method manually."
+        elsif !abstract_class? && has_attribute?(old_name) && custom_method_defined?(target_name)
+          raise ArgumentError, "#{self.name} model aliases `#{old_name}`, but `#{old_name}` has a custom method defined, which is not allowed for `alias_attribute`. Consider using `alias_method :#{new_name}, :#{old_name}` instead."
         else
           define_attribute_method_pattern(pattern, old_name, owner: code_generator, as: new_name, override: true)
         end
@@ -262,6 +265,15 @@ module ActiveRecord
       end
 
       private
+        def custom_method_defined?(method_name)
+          method_defined = method_defined?(method_name) || private_method_defined?(method_name)
+          manually_defined = method_defined &&
+            !self.instance_method(method_name).owner.is_a?(GeneratedAttributeMethods)
+          reserved_method_name = ::ActiveRecord::AttributeMethods.dangerous_attribute_methods.include?(method_name)
+
+          manually_defined && !reserved_method_name
+        end
+
         def inherited(child_class)
           super
           child_class.initialize_generated_modules

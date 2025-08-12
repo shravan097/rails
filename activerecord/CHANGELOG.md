@@ -1,3 +1,21 @@
+*   Raise `ArgumentError` when using `alias_attribute` with attributes that have custom methods defined.
+
+    Previously, `alias_attribute` would silently bypass custom methods, which could lead to
+    confusing behavior. Now it raises a clear error message to prevent this issue.
+
+    ```ruby
+    class User < ActiveRecord::Base
+      def email
+        "custom_#{super}"
+      end
+
+      alias_attribute :username, :email
+      # => ArgumentError: User model aliases `email`, but `email` has a custom method defined, which is not allowed for `alias_attribute`.
+    end
+    ```
+
+    *Shravan Dhakal*
+
 *   Add `connection.current_transaction.isolation` API to check current transaction's isolation level.
 
     Returns the isolation level if it was explicitly set via the `isolation:` parameter
